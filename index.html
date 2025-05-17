@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UMT Coastal Guide</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+</head>
+<body>
+  <h1>UMT Coastal Guide</h1>
+
+  <div id="map"></div>
+
+  <div class="controls">
+    <button onclick="getLocation()">📍 Get My Location</button>
+    <input type="file" accept="image/*" capture="environment" id="cameraInput">
+  </div>
+
+  <div id="gallery">
+    <h2>📸 Tagged Images</h2>
+    <div id="imageList"></div>
+  </div>
+
+  <script>
+    let map;
+    let currentLatLng;
+    let db;
+
+    function initMap() {
+      map = L.map('map').setView([5.4204, 103.0400], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    }
+
+    function getLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          const { latitude, longitude } = pos.coords;
+          currentLatLng = [latitude, longitude];
+          map.setView(currentLatLng, 15);
+          L.marker(currentLatLng).addTo(map).bindPopup("You're here").openPopup();
+        });
+      } else {
+        alert("Geolocation not supported.");
+      }
+    }
+
+    document.getElementById('cameraInput').addEventListener('change', function () {
+      const file = this.files[0];
+      if (file && currentLatLng) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          const imgData = e.target.result;
+
+          // Add marker with image popup
+          const marker = L.marker(currentLatLng).addTo(map);
+          marker.bindPopup(`<img src="${imgData}" width="100">`).openPopup();
+
+          // Add to gallery
+          const img = document.createElement('img');
+          img.src = imgData;
+          document.getElementById('imageList').appendChild(img);
+
+          // Save to IndexedDB
+          const tx = db.transaction("photos", "readwrite");
+          tx.objectStore("photos").add({ latlng: currentLatLng, img: imgData });
+        };
+        reader.readAsDataURL(file);
+      } else {
+        alert("Please get your location first.");
+      }
+    });
+
+    function initDB() {
+      const request = indexedDB.open("coastalGuideDB", 1);
+
+      request.onupgradeneeded = (event) => {
+        db = event.target.result;
+        db.createObjectStore("photos", { autoIncrement: true });
+      };
+
+      request.onsuccess = (event) => {
+        db = event.target.result;
+        loadImages();
+      };
+    }
+
+    function loadImages() {
+      const tx = db.transaction("photos", "readonly");
+      const store = tx.objectStore("photos");
+      const getAll = store.getAll();
+
+      getAll.onsuccess = () => {
+        getAll.result.forEach(({ latlng, img }) => {
+          const marker = L.marker(latlng).addTo(map);
+          marker.bindPopup(`<img src="${img}" width="100">`);
+
+          const image = document.createElement('img');
+          image.src = img;
+          document.getElementById('imageList').appendChild(image);
+        });
+      };
+    }
+
+    window.onload = () => {
+      initMap();
+      initDB();
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(() => console.log("Service Worker Registered"));
+      }
+    };
+  </script>
+</body>
+</html>
